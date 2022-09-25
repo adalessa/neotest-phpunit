@@ -3,6 +3,8 @@ local async = require("neotest.async")
 local logger = require("neotest.logging")
 local utils = require("neotest-phpunit.utils")
 
+local sail = require("laravel.sail")
+
 ---@class neotest.Adapter
 ---@field name string
 local NeotestAdapter = { name = "neotest-phpunit" }
@@ -61,6 +63,33 @@ local function get_phpunit_cmd()
   return binary
 end
 
+local path_mapping = {}
+
+---get's the relative file from the absolute
+---@param filename string
+---@return string
+local function get_test_path(filename)
+
+    for remote_path, local_path in pairs(path_mapping) do
+        if string.find(filename, local_path) then
+            filename =  string.gsub(filename, local_path, remote_path )
+            break
+        end
+    end
+    return filename
+end
+
+local function convert_paths(results)
+    local converted_results = {}
+    for test, result in pairs(results) do
+        for remote_path, local_path in pairs(path_mapping) do
+            converted_results[string.gsub(test, remote_path, local_path)] = result
+        end
+    end
+
+    return converted_results
+end
+
 ---@param args neotest.RunArgs
 ---@return neotest.RunSpec | nil
 function NeotestAdapter.build_spec(args)
@@ -71,7 +100,7 @@ function NeotestAdapter.build_spec(args)
 
   local command = vim.tbl_flatten({
     binary,
-    position.name ~= "tests" and position.path,
+    position.name ~= "tests" and get_test_path(position.path),
     "--log-junit=" .. results_path,
   })
 
@@ -103,6 +132,9 @@ end
 function NeotestAdapter.results(test, result, tree)
   local output_file = test.context.results_path
 
+  -- need to copy the file
+  sail.exec(string.format("cp laravel.test:%s %s", output_file, output_file))
+
   local ok, data = pcall(lib.files.read, output_file)
   if not ok then
     logger.error("No test output file found:", output_file)
@@ -121,7 +153,7 @@ function NeotestAdapter.results(test, result, tree)
     return {}
   end
 
-  return results
+  return convert_paths(results)
 end
 
 local is_callable = function(obj)
@@ -137,6 +169,11 @@ setmetatable(NeotestAdapter, {
         return opts.phpunit_cmd
       end
     end
+
+    if is_callable(opts.path_mapping) then
+      path_mapping = opts.path_mapping()
+    end
+
     return NeotestAdapter
   end,
 })
