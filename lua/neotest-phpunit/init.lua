@@ -45,6 +45,14 @@ function NeotestAdapter.discover_positions(path)
         (name) @test.name
       ) @test.definition
     ))
+
+    ((
+    expression_statement
+        (function_call_expression
+            (name) @func_name (#eq? @func_name "it")
+            (arguments (argument (string (string_value) @test.name)))
+        ) @test.declaration
+    ))
   ]]
 
   return lib.treesitter.parse_positions(path, query, {
@@ -69,10 +77,9 @@ local path_mapping = {}
 ---@param filename string
 ---@return string
 local function get_test_path(filename)
-
     for remote_path, local_path in pairs(path_mapping) do
-        if string.find(filename, local_path) then
-            filename =  string.gsub(filename, local_path, remote_path )
+        if string.sub(filename, 1, string.len(local_path)) == local_path then
+            filename = remote_path .. string.sub(filename, string.len(local_path) + 1)
             break
         end
     end
